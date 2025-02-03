@@ -1,9 +1,13 @@
 import { Math as PMath, Scene, Tilemaps } from "phaser";
 
 import { generateMap } from "../../scripts/generateMap";
-import { getWallDisplaySprite } from "../../scripts/getDisplaySprite";
+import {
+    getFloorDisplaySprite,
+    getWallDisplaySprite,
+} from "../../scripts/getDisplaySprite";
 import { Cell } from "../../types";
 import { EventBus } from "../EventBus";
+import { mapValues } from "../../scripts/generateMap";
 // import { Player } from "../player/Player";
 // import { generateRoom } from "./roomGeneration";
 
@@ -14,8 +18,13 @@ export class RoomScene extends Scene {
     r: PMath.RandomDataGenerator;
     cells: Cell[];
     map: Tilemaps.Tilemap;
-    tiles: Tilemaps.Tileset | null;
+    wallTiles: Tilemaps.Tileset | null;
     wallLayer: Tilemaps.TilemapLayer | null;
+    floorTiles: Tilemaps.Tileset | null;
+    floorLayer: Tilemaps.TilemapLayer | null;
+    decalTiles: Tilemaps.Tileset | null;
+    decalLayer: Tilemaps.TilemapLayer | null;
+    focus: PMath.Vector2;
 
     constructor(roomName: string) {
         super(roomName);
@@ -46,14 +55,47 @@ export class RoomScene extends Scene {
             width: 800,
             height: 800,
         });
-        this.tiles = this.map.addTilesetImage(
+
+        this.focus = new PMath.Vector2(400, 400);
+        this.wallTiles = this.map.addTilesetImage(
             "walls_tilemap",
             "walls_tilemap",
             16,
             16
         );
-        this.wallLayer = this.map.createBlankLayer("walls", this.tiles!, 0, 0);
-        this.selectLayer(this.wallLayer!);
+        this.wallLayer = this.map.createBlankLayer(
+            "walls",
+            this.wallTiles!,
+            0,
+            0
+        );
+        this.wallLayer?.setDepth(1);
+        this.floorTiles = this.map.addTilesetImage(
+            "floor_tilemap",
+            "floor_tilemap",
+            16,
+            16
+        );
+        this.floorLayer = this.map.createBlankLayer(
+            "floor",
+            this.floorTiles!,
+            0,
+            0
+        );
+        this.floorLayer?.setDepth(0);
+        this.decalTiles = this.map.addTilesetImage(
+            "ground_decal_tilemap",
+            "ground_decal_tilemap",
+            16,
+            16
+        );
+        this.decalLayer = this.map.createBlankLayer(
+            "ground_decals",
+            this.decalTiles!,
+            0,
+            0
+        );
+        this.decalLayer?.setOrigin(0.5, 0.5);
 
         this.data.set("width", 800);
         this.data.set("height", 800);
@@ -66,7 +108,7 @@ export class RoomScene extends Scene {
 
         this.cells = cells;
 
-        const mappedCells = new Map();
+        const mappedCells = new Map<string, Cell>();
 
         cells.forEach((c) =>
             mappedCells.set(`${c.position.x} - ${c.position.y}`, c)
@@ -74,16 +116,34 @@ export class RoomScene extends Scene {
 
         new Array(this.data.get("height") + 1).fill("").map((_, y) =>
             new Array(this.data.get("width") + 1).fill("").map((_, x) => {
-                const vector = getWallDisplaySprite({
-                    pos: new PMath.Vector2(x, y),
+                const pos = new PMath.Vector2(x, y);
+                const wallVector = getWallDisplaySprite({
+                    pos,
                     cells: mappedCells,
                 });
-                if (!vector) {
-                    return;
+
+                if (wallVector) {
+                    this.selectLayer(this.wallLayer!);
+                    const wallFrame = wallVector.y * 4 + wallVector.x;
+                    this.map.putTileAt(wallFrame, x, y);
                 }
-                const frame = vector.y * 4 + vector.x;
-                console.log("should put tile", frame);
-                this.map.putTileAt(frame, x, y);
+                const floorVector = getFloorDisplaySprite({
+                    pos,
+                    cells: mappedCells,
+                });
+                if (floorVector) {
+                    this.selectLayer(this.floorLayer!);
+                    const floorFrame = floorVector.y * 4 + floorVector.x;
+                    this.map.putTileAt(floorFrame, x, y);
+                }
+                const dCell = mappedCells.get(`${x} - ${y}`);
+                if (dCell?.isFloor && dCell.n > 0.5) {
+                    this.selectLayer(this.decalLayer!);
+                    const decalFrame = Math.floor(
+                        mapValues(dCell.n, 0.5, 1, 0, 9)
+                    );
+                    this.map.putTileAt(decalFrame, x, y);
+                }
             })
         );
     }
@@ -92,15 +152,39 @@ export class RoomScene extends Scene {
         this.reset();
         this.camera = this.cameras.main;
         this.camera.setBackgroundColor(
-            Phaser.Display.Color.ValueToColor("black").color32
+            Phaser.Display.Color.ValueToColor(`#8a7366`).color32
         );
         this.camera.centerOn(this.data.get("width"), this.data.get("height"));
-        // this.camera.setZoom(4);
+        this.camera.setZoom(1);
 
         EventBus.emit("current-scene-ready", this);
+        this.camera.startFollow(this.focus, true, 0.3, 0.3);
+
+        this.input.keyboard?.on("keydown", (e: KeyboardEvent) => {
+            if (
+                !["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(
+                    e.key
+                )
+            ) {
+                return;
+            }
+
+            if (e.key === "ArrowRight") {
+                this.focus.add(new PMath.Vector2(cellSize * 4, 0));
+            }
+            if (e.key === "ArrowLeft") {
+                this.focus.add(new PMath.Vector2(-cellSize * 4, 0));
+            }
+            if (e.key === "ArrowDown") {
+                this.focus.add(new PMath.Vector2(0, cellSize * 4));
+            }
+            if (e.key === "ArrowUp") {
+                this.focus.add(new PMath.Vector2(0, -cellSize * 4));
+            }
+        });
     }
 
-    // update(time: number, delta: number): void {}
+    update(time: number, delta: number): void {}
 }
 
 // this.cells.forEach((c) => {
@@ -115,7 +199,7 @@ export class RoomScene extends Scene {
 //             pos: c.position,
 //         });
 
-//         const frame = spriteInfo.y * 4 + spriteInfo.x;
+//         const wallFrame = spriteInfo.y * 4 + spriteInfo.x;
 //         this.add
 //             .rectangle(
 //                 c.position.x * spriteSize - spriteSize / 2,
@@ -131,7 +215,7 @@ export class RoomScene extends Scene {
 //                 c.position.x * spriteSize - spriteSize / 2,
 //                 c.position.y * spriteSize,
 //                 "walls_tilemap",
-//                 frame
+//                 wallFrame
 //             )
 //             .setDepth(c.position.y * spriteSize - spriteSize / 2);
 //     }

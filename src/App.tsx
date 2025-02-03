@@ -9,7 +9,6 @@ function App() {
 
     // Event emitted from the PhaserGame component
     const currentScene = (scene: Phaser.Scene) => {
-        console.log({ scene });
         // setCanMoveSprite(scene.scene.key !== "MainMenu");
     };
 

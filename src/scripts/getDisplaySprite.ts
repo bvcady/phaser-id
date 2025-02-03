@@ -25,7 +25,7 @@ export const displayTileOptions: Map<string, [Math.Vector2 | string]> =
         .set([B, A, B, A].toString(), [new V(3, 2), "EDGE_LEFT"])
         .set([B, A, A, A].toString(), [new V(3, 3), "OUTER_TOP_LEFT"]);
 
-console.log(displayTileOptions);
+// console.log(displayTileOptions);
 
 const neighbours = [new V(0, 0), new V(1, 0), new V(0, 1), new V(1, 1)];
 
@@ -54,6 +54,7 @@ export const getWallDisplaySprite = ({ pos, cells, shouldlog }: Props) => {
     const topLeft = getWorldTile(pos.clone().add(neighbours[0]));
     const key = [topLeft, topRight, bottomLeft, bottomRight].toString();
     if (
+        topLeft === "no" &&
         topLeft === topRight &&
         topRight === bottomLeft &&
         bottomLeft === bottomRight
@@ -67,16 +68,16 @@ export const getFloorDisplaySprite = ({ pos, cells, shouldlog }: Props) => {
     const getWorldTile = (coords: Math.Vector2): string => {
         const foundCell = cells.get(`${coords.x} - ${coords.y}`);
 
-        if (!foundCell?.isWall && !foundCell?.isFloor) {
+        if (foundCell?.n < 0.5) {
             return "yes";
         }
-        if (foundCell.isFloor) {
-            return "no";
-        }
-        return "yes";
+        // if (foundCell?.isWall) {
+        //     return "no";
+        // }
+        return "no";
     };
 
-    pos.subtract({ x: 1, y: 1 });
+    pos.clone().subtract({ x: 1, y: 1 });
 
     const bottomRight = getWorldTile(pos.clone().add(neighbours[3]));
     const bottomLeft = getWorldTile(pos.clone().add(neighbours[2]));
@@ -90,6 +91,14 @@ export const getFloorDisplaySprite = ({ pos, cells, shouldlog }: Props) => {
         console.log(displayTileOptions.get(key));
     }
 
+    // if (
+    //     topLeft !== "no" &&
+    //     topLeft === topRight &&
+    //     topRight === bottomLeft &&
+    //     bottomLeft === bottomRight
+    // ) {
+    //     return undefined;
+    // }
     return displayTileOptions.get(key)?.[0] as Math.Vector2;
 };
 

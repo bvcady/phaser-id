@@ -21,7 +21,7 @@ const noise = (x: number, y: number) => (1 + noise2D(x, y)) / 2;
 const random = (min: number, max: number) =>
     min + randDataGen.frac() * (max - min);
 
-const mapValues = (
+export const mapValues = (
     value: number,
     fromMin: number,
     fromMax: number,
