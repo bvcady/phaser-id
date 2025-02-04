@@ -1,18 +1,18 @@
 import { Math as PMath, Scene, Tilemaps } from "phaser";
 
-import { generateMap } from "../../scripts/generateMap";
+import { Player } from "../../components/Player";
+import { generateMap, mapValues } from "../../scripts/generateMap";
 import {
     getFloorDisplaySprite,
     getWallDisplaySprite,
 } from "../../scripts/getDisplaySprite";
 import { Cell } from "../../types";
 import { EventBus } from "../EventBus";
-import { mapValues } from "../../scripts/generateMap";
 // import { Player } from "../player/Player";
 // import { generateRoom } from "./roomGeneration";
 
-const cellSize = 8;
-const spriteSize = 16;
+const cellSize = 16;
+
 export class RoomScene extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
     r: PMath.RandomDataGenerator;
@@ -25,6 +25,7 @@ export class RoomScene extends Scene {
     decalTiles: Tilemaps.Tileset | null;
     decalLayer: Tilemaps.TilemapLayer | null;
     focus: PMath.Vector2;
+    player: Player;
 
     constructor(roomName: string) {
         super(roomName);
@@ -157,8 +158,18 @@ export class RoomScene extends Scene {
         this.camera.centerOn(this.data.get("width"), this.data.get("height"));
         this.camera.setZoom(1);
 
-        EventBus.emit("current-scene-ready", this);
-        this.camera.startFollow(this.focus, true, 0.3, 0.3);
+        const playerStart = [...this.cells]
+            .filter((c) => c.isFloor)
+            .sort(() => (Math.random() > 0.5 ? 1 : -1))[0];
+
+        this.player = new Player(
+            this,
+            playerStart.position.x * cellSize,
+            playerStart.position.y * cellSize
+        );
+        this.player.play("idle");
+
+        this.camera.startFollow(this.player, true, 0.3, 0.3);
 
         this.input.keyboard?.on("keydown", (e: KeyboardEvent) => {
             if (
@@ -170,18 +181,31 @@ export class RoomScene extends Scene {
             }
 
             if (e.key === "ArrowRight") {
-                this.focus.add(new PMath.Vector2(cellSize * 4, 0));
+                this.player.setPosition(
+                    this.player.x + cellSize,
+                    this.player.y
+                );
             }
             if (e.key === "ArrowLeft") {
-                this.focus.add(new PMath.Vector2(-cellSize * 4, 0));
+                this.player.setPosition(
+                    this.player.x - cellSize,
+                    this.player.y
+                );
             }
             if (e.key === "ArrowDown") {
-                this.focus.add(new PMath.Vector2(0, cellSize * 4));
+                this.player.setPosition(
+                    this.player.x,
+                    this.player.y + cellSize
+                );
             }
             if (e.key === "ArrowUp") {
-                this.focus.add(new PMath.Vector2(0, -cellSize * 4));
+                this.player.setPosition(
+                    this.player.x,
+                    this.player.y - cellSize
+                );
             }
         });
+        EventBus.emit("current-scene-ready", this);
     }
 
     update(time: number, delta: number): void {}

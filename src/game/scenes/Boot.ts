@@ -7,6 +7,15 @@ export class Boot extends Scene {
     }
 
     preload() {
+        this.load.spritesheet(
+            "main_guy",
+            "assets/SGQ_Dungeon/customized/player.png",
+            {
+                frameWidth: 16,
+                frameHeight: 16,
+                spacing: 0,
+            }
+        );
         this.load.image("background", "assets/bg.png");
         this.load.image(
             "walls_tilemap",
