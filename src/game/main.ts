@@ -14,14 +14,20 @@ const config: Phaser.Types.Core.GameConfig = {
     scale: {
         mode: Phaser.Scale.NONE,
         zoom: 2,
-        // autoCenter: Phaser.Scale.CENTER_BOTH,
         width: 256,
         height: 192,
+        min: {
+            width: 256,
+            height: 192,
+        },
+        max: {
+            width: 256 * 2,
+            height: 192 * 2,
+        },
     },
     type: Phaser.WEBGL,
-    width: 1200,
     parent: "game-container",
-    scene: [Boot, RoomScene],
+    scene: [Boot],
 };
 
 const StartGame = (parent: string) => {

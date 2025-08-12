@@ -1,5 +1,5 @@
 import { Math as PMath } from "phaser";
-import { createNoise2D } from "simplex-noise";
+import { createNoise3D } from "simplex-noise";
 import { Cell, Room } from "../types";
 
 interface Props {
@@ -15,8 +15,9 @@ const randDataGen = new PMath.RandomDataGenerator([
     Math.random().toString(36).substring(4).toLocaleUpperCase(),
 ]);
 
-const noise2D = createNoise2D(() => randDataGen.frac());
-const noise = (x: number, y: number) => (1 + noise2D(x, y)) / 2;
+const noise3D = createNoise3D(() => randDataGen.frac());
+const noise = (x: number, y: number, z?: number) =>
+    (1 + noise3D(x, y, z ?? 0)) / 2;
 
 const random = (min: number, max: number) =>
     min + randDataGen.frac() * (max - min);
@@ -144,7 +145,7 @@ export const generateMap = ({ width, height, cellSize }: Props) => {
         }
     }
 
-    const checkFloor = (vec: PMath.Vector2, n: number) => {
+    const checkFloor = (vec: PMath.Vector2) => {
         let close = false;
         let type = "base";
 
@@ -190,7 +191,7 @@ export const generateMap = ({ width, height, cellSize }: Props) => {
                 mapValues(i * cellSize, 0, width, 0, 3),
                 mapValues(j * cellSize, 0, height, 0, 3)
             );
-            const roomInfo = checkFloor(position, n);
+            const roomInfo = checkFloor(position);
 
             cells.push({
                 position,
@@ -225,7 +226,6 @@ export const generateMap = ({ width, height, cellSize }: Props) => {
                 (c.isFloor && (c.n < 0.33 || c.n > 0.66)),
         };
     });
-
     cells = [...cells].map((c) => {
         return {
             ...c,

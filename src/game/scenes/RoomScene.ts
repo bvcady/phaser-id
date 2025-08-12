@@ -1,6 +1,7 @@
-import { Math as PMath, Scene, Tilemaps } from "phaser";
+import { Math as PMath, Scene, Tilemaps, Tweens } from "phaser";
 
 import { Player } from "../../components/Player";
+import { Tile } from "../../components/Tile";
 import { generateMap, mapValues } from "../../scripts/generateMap";
 import {
     getFloorDisplaySprite,
@@ -8,10 +9,7 @@ import {
 } from "../../scripts/getDisplaySprite";
 import { Cell } from "../../types";
 import { EventBus } from "../EventBus";
-// import { Player } from "../player/Player";
-// import { generateRoom } from "./roomGeneration";
-
-const cellSize = 16;
+import { cellSize } from "../../utils/constants";
 
 export class RoomScene extends Scene {
     camera: Phaser.Cameras.Scene2D.Camera;
@@ -26,6 +24,10 @@ export class RoomScene extends Scene {
     decalLayer: Tilemaps.TilemapLayer | null;
     focus: PMath.Vector2;
     player: Player;
+    mappedCells: Map<string, Cell> = new Map();
+    mappedTiles: Map<string, Tile> = new Map();
+    floatTween: Tweens.Tween | undefined;
+    floatingTiles: Tile[] = [];
 
     constructor(roomName: string) {
         super(roomName);
@@ -96,6 +98,8 @@ export class RoomScene extends Scene {
             0,
             0
         );
+
+        this.decalLayer?.setDepth(1);
         this.decalLayer?.setOrigin(0.5, 0.5);
 
         this.data.set("width", 800);
@@ -109,10 +113,8 @@ export class RoomScene extends Scene {
 
         this.cells = cells;
 
-        const mappedCells = new Map<string, Cell>();
-
         cells.forEach((c) =>
-            mappedCells.set(`${c.position.x} - ${c.position.y}`, c)
+            this.mappedCells.set(`${c.position.x} - ${c.position.y}`, c)
         );
 
         new Array(this.data.get("height") + 1).fill("").map((_, y) =>
@@ -120,33 +122,57 @@ export class RoomScene extends Scene {
                 const pos = new PMath.Vector2(x, y);
                 const wallVector = getWallDisplaySprite({
                     pos,
-                    cells: mappedCells,
+                    cells: this.mappedCells,
                 });
 
                 if (wallVector) {
                     this.selectLayer(this.wallLayer!);
                     const wallFrame = wallVector.y * 4 + wallVector.x;
-                    this.map.putTileAt(wallFrame, x, y);
+                    this.map.putTileAt(wallFrame, x - 1, y - 1);
                 }
                 const floorVector = getFloorDisplaySprite({
                     pos,
-                    cells: mappedCells,
+                    cells: this.mappedCells,
                 });
                 if (floorVector) {
                     this.selectLayer(this.floorLayer!);
                     const floorFrame = floorVector.y * 4 + floorVector.x;
-                    this.map.putTileAt(floorFrame, x, y);
+                    this.map.putTileAt(floorFrame, x - 1, y - 1);
                 }
-                const dCell = mappedCells.get(`${x} - ${y}`);
+                const dCell = this.mappedCells.get(`${x} - ${y}`);
                 if (dCell?.isFloor && dCell.n > 0.5) {
                     this.selectLayer(this.decalLayer!);
                     const decalFrame = Math.floor(
                         mapValues(dCell.n, 0.5, 1, 0, 9)
                     );
-                    this.map.putTileAt(decalFrame, x, y);
+                    this.map.putTileAt(decalFrame, x - 1, y - 1);
                 }
             })
         );
+        cells.forEach((c) => {
+            if (c.isFloor && c.n < 0.33 && this.r.frac() > 0.33) {
+                const t = new Tile(this, c).setDepth(4);
+                this.floatingTiles.push(t);
+                const delay = mapValues(c.n, 0, 1, 600, 800);
+                t.buoyancy = delay;
+
+                this.mappedTiles.set(`${c.position.x} - ${c.position.y}`, t);
+
+                new Tweens.Tween(this.tweens, [this.player]);
+
+                this.tweens.add({
+                    targets: t,
+                    displayOriginY: { from: 7, to: 9 },
+                    ease: "Ease",
+                    // easeParams: [4],
+                    duration: t.buoyancy,
+                    loop: -1,
+                    delay: t.buoyancy,
+                    hold: t.buoyancy / 2,
+                    yoyo: true,
+                });
+            }
+        });
     }
 
     create() {
@@ -162,13 +188,9 @@ export class RoomScene extends Scene {
             .filter((c) => c.isFloor)
             .sort(() => (Math.random() > 0.5 ? 1 : -1))[0];
 
-        this.player = new Player(
-            this,
-            playerStart.position.x * cellSize,
-            playerStart.position.y * cellSize
-        );
-        this.player.play("idle");
+        this.player = new Player(this, playerStart);
 
+        this.player.idle();
         this.camera.startFollow(this.player, true, 0.3, 0.3);
 
         this.input.keyboard?.on("keydown", (e: KeyboardEvent) => {
@@ -181,96 +203,253 @@ export class RoomScene extends Scene {
             }
 
             if (e.key === "ArrowRight") {
-                this.player.setPosition(
-                    this.player.x + cellSize,
-                    this.player.y
-                );
+                if (!this.player.isMoving) {
+                    this.player.walkRight();
+
+                    const target = new PMath.Vector2(
+                        this.player.x + cellSize,
+                        this.player.y
+                    );
+
+                    const targetCell = this.mappedCells.get(
+                        `${target.x / cellSize} - ${target.y / cellSize}`
+                    );
+
+                    const canWalk = targetCell?.isFloor;
+
+                    if (!canWalk) {
+                        this.player.idle();
+                        return;
+                    }
+
+                    this.player.target = target;
+                    const targetTile = this.mappedTiles.get(
+                        `${this.player.target.x / cellSize} - ${
+                            this.player.target.y / cellSize
+                        }`
+                    );
+
+                    this.tweens.add({
+                        targets: this.player,
+                        x: this.player.target.x,
+                        y: this.player.target.y,
+                        displayOriginY: targetTile
+                            ? targetTile.displayOriginY + 8
+                            : this.player.displayOriginY,
+                        ease: "Stepped",
+                        easeParams: [4],
+                        duration: 400,
+                        onStart: () => {
+                            this.player.prev = "right";
+                            this.player.isMoving = true;
+                        },
+                        onComplete: (tween) => {
+                            this.floatTween?.stop();
+                            this.player.isMoving = false;
+                            this.player.currentCell = targetCell;
+                            this.player.idle();
+                            this.playerFloat(targetTile);
+                            tween.remove();
+                        },
+                    });
+                }
             }
             if (e.key === "ArrowLeft") {
-                this.player.setPosition(
-                    this.player.x - cellSize,
-                    this.player.y
-                );
+                if (!this.player.isMoving) {
+                    this.player.walkLeft();
+                    const target = new PMath.Vector2(
+                        this.player.x - cellSize,
+                        this.player.y
+                    );
+
+                    const targetCell = this.mappedCells.get(
+                        `${target.x / cellSize} - ${target.y / cellSize}`
+                    );
+
+                    const canWalk = targetCell?.isFloor;
+
+                    if (!canWalk) {
+                        console.log(targetCell);
+                        this.player.idle();
+                        return;
+                    }
+
+                    this.player.target = target;
+                    const targetTile = this.mappedTiles.get(
+                        `${this.player.target.x / cellSize} - ${
+                            this.player.target.y / cellSize
+                        }`
+                    );
+                    this.tweens.add({
+                        targets: this.player,
+                        x: this.player.target.x,
+                        y: this.player.target.y,
+                        displayOriginY: targetTile
+                            ? targetTile.displayOriginY + 8
+                            : this.player.displayOriginY,
+                        ease: "Stepped",
+                        easeParams: [4],
+                        duration: 400,
+                        onStart: () => {
+                            this.player.prev = "left";
+                            this.player.isMoving = true;
+                        },
+                        onComplete: (tween) => {
+                            this.floatTween?.stop();
+                            this.player.isMoving = false;
+                            this.player.currentCell = targetCell;
+                            this.player.idle();
+                            this.playerFloat(targetTile);
+                            tween.remove();
+                        },
+                    });
+                }
             }
             if (e.key === "ArrowDown") {
-                this.player.setPosition(
-                    this.player.x,
-                    this.player.y + cellSize
-                );
+                if (!this.player.isMoving) {
+                    this.player.walkDown();
+                    const target = new PMath.Vector2(
+                        this.player.x,
+                        this.player.y + cellSize
+                    );
+                    const targetCell = this.mappedCells.get(
+                        `${target.x / cellSize} - ${target.y / cellSize}`
+                    );
+
+                    const canWalk = targetCell?.isFloor;
+
+                    if (!canWalk) {
+                        console.log(targetCell);
+                        this.player.idle();
+                        return;
+                    }
+
+                    this.player.target = target;
+                    const targetTile = this.mappedTiles.get(
+                        `${this.player.target.x / cellSize} - ${
+                            this.player.target.y / cellSize
+                        }`
+                    );
+                    this.tweens.add({
+                        targets: this.player,
+                        x: this.player.target.x,
+                        y: this.player.target.y,
+                        displayOriginY: targetTile
+                            ? targetTile.displayOriginY + 8
+                            : this.player.displayOriginY,
+                        ease: "Stepped",
+                        easeParams: [4],
+                        duration: 400,
+                        onStart: () => {
+                            this.player.prev = "down";
+                            this.player.isMoving = true;
+                        },
+                        onComplete: (tween) => {
+                            this.floatTween?.stop();
+                            this.player.isMoving = false;
+                            this.player.currentCell = targetCell;
+                            this.player.idle();
+                            this.playerFloat(targetTile);
+
+                            tween.remove();
+                        },
+                    });
+                }
             }
             if (e.key === "ArrowUp") {
-                this.player.setPosition(
-                    this.player.x,
-                    this.player.y - cellSize
-                );
+                if (!this.player.isMoving) {
+                    this.player.walkUp();
+                    const target = new PMath.Vector2(
+                        this.player.x,
+                        this.player.y - cellSize
+                    );
+                    const targetCell = this.mappedCells.get(
+                        `${target.x / cellSize} - ${target.y / cellSize}`
+                    );
+
+                    const canWalk = targetCell?.isFloor;
+
+                    if (!canWalk) {
+                        console.log(targetCell);
+                        this.player.idle();
+                        return;
+                    }
+
+                    this.player.target = target;
+                    const targetTile = this.mappedTiles.get(
+                        `${this.player.target.x / cellSize} - ${
+                            this.player.target.y / cellSize
+                        }`
+                    );
+
+                    this.tweens.add({
+                        targets: this.player,
+                        x: this.player.target.x,
+                        y: this.player.target.y,
+                        displayOriginY: targetTile
+                            ? targetTile.displayOriginY + 8
+                            : this.player.displayOriginY,
+                        ease: "Stepped",
+                        easeParams: [4],
+                        duration: 400,
+                        onStart: () => {
+                            this.player.prev = "up";
+                            this.player.isMoving = true;
+                        },
+                        onComplete: (tween) => {
+                            this.floatTween?.stop();
+                            this.player.isMoving = false;
+                            this.player.idle();
+                            this.player.currentCell = targetCell;
+                            this.playerFloat(targetTile);
+
+                            tween.remove();
+                        },
+                    });
+                }
             }
         });
         EventBus.emit("current-scene-ready", this);
     }
 
+    playerFloat = (targetTile?: Tile) => {
+        if (targetTile) {
+            const tileTween = this.tweens
+                .getTweens()
+                .find((t) =>
+                    t.targets.find((t) => {
+                        if ("id" in t) {
+                            return t.id === targetTile.id;
+                        }
+                    })
+                )
+                ?.seek(10);
+
+            if (!tileTween) {
+                return this.player.setDisplayOrigin(8, 12);
+            }
+
+            targetTile.setDisplayOrigin(8, 7);
+            this.player.setDisplayOrigin(8, targetTile.displayOriginY + 8);
+
+            this.floatTween = this.tweens.add({
+                targets: this.player,
+                displayOriginY: { from: 14, to: 16 },
+                ease: "Stepped",
+                easeParams: [4],
+                duration: targetTile.buoyancy,
+                loop: -1,
+                delay: targetTile.buoyancy,
+                hold: targetTile.buoyancy / 2,
+                yoyo: true,
+                persist: false,
+                seek: tileTween.elapsed + 50,
+            });
+        } else {
+            this.player.setDisplayOrigin(8, 12);
+        }
+    };
+
     update(time: number, delta: number): void {}
 }
-
-// this.cells.forEach((c) => {
-//     if (!c.filled) {
-//         return;
-//     }
-//     // getSprite({ cell: c, allCells: this.cells });
-
-//     if (c.isWall) {
-//         const spriteInfo = getWallDisplaySprite({
-//             cells: this.cells,
-//             pos: c.position,
-//         });
-
-//         const wallFrame = spriteInfo.y * 4 + spriteInfo.x;
-//         this.add
-//             .rectangle(
-//                 c.position.x * spriteSize - spriteSize / 2,
-//                 c.position.y * spriteSize,
-//                 spriteSize,
-//                 spriteSize,
-//                 0x000
-//             )
-//             .setDepth(1);
-
-//         this.add
-//             .sprite(
-//                 c.position.x * spriteSize - spriteSize / 2,
-//                 c.position.y * spriteSize,
-//                 "walls_tilemap",
-//                 wallFrame
-//             )
-//             .setDepth(c.position.y * spriteSize - spriteSize / 2);
-//     }
-
-// this.add
-//     .rectangle(
-//         c.position.x * cellSize,
-//         c.position.y * cellSize - (c.isWall ? 0.5 : 0) * cellSize,
-//         cellSize,
-//         cellSize * 3.5,
-//         c.isFloor
-//             ? new Phaser.Display.Color(200, 200, 200).color32
-//             : new Phaser.Display.Color(20, 20, 20).color32
-//     )
-//     .setAlpha(c.isFloor ? c.n : 1)
-//     .setVisible(true);
-// });
-
-// rooms.forEach((r) => {
-//     const roomCircle = this.add.graphics();
-
-//     const color = Phaser.Display.Color.ValueToColor("#0a0000").color32;
-//     const thickness = 2;
-//     const alpha = 1;
-
-//     roomCircle.lineStyle(thickness, color, alpha);
-
-//     const a = new Phaser.Geom.Point(r.position.x, r.position.y);
-//     const radius = r.radius;
-
-//     roomCircle.strokeCircle(a.x, a.y, radius);
-
-// });
 
